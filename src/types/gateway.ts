@@ -63,6 +63,9 @@ export interface Agent {
   channels?: string[];
   tools?: AgentToolPolicy;
   sandbox?: boolean;
+  contextUsage?: { used: number; total: number };
+  tokenCount?: number;
+  version?: string;
 }
 
 export interface AgentToolPolicy {
@@ -94,6 +97,29 @@ export interface Session {
   lastMessageAt?: string;
   messageCount: number;
   status: "active" | "idle" | "closed";
+  key?: string;
+  tokenCount?: number;
+  label?: string;
+}
+
+// Chat Message Types
+export interface ChatMessagePart {
+  type: "text" | "toolCall" | "toolResult";
+  text?: string;
+  name?: string;
+  arguments?: Record<string, unknown>;
+  result?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string | ChatMessagePart[];
+  timestamp: string;
+  agentId?: string;
+  sessionId?: string;
+  model?: string;
+  tokenCount?: number;
 }
 
 // Cron Types
@@ -134,6 +160,7 @@ export interface MemoryEntry {
   type: "fact" | "preference" | "decision" | "note";
   createdAt: string;
   source?: string;
+  relevance?: number;
 }
 
 // Skill Types
@@ -185,6 +212,61 @@ export interface LogEntry {
   meta?: Record<string, unknown>;
 }
 
+// Exec Approval Types
+export interface ExecApproval {
+  id: string;
+  agentId: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  host: "gateway" | "node";
+  status: "pending" | "approved" | "denied" | "timeout";
+  requestedAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+}
+
+// Activity Event Types
+export interface ActivityEvent {
+  id: string;
+  type: "agent" | "cron" | "task" | "approval" | "chat" | "system" | "tool" | "error";
+  title: string;
+  description?: string;
+  agentId?: string;
+  timestamp: string;
+  meta?: Record<string, unknown>;
+}
+
+// Health Types
+export interface GatewayHealth {
+  ok: boolean;
+  version?: string;
+  uptime?: number;
+  agents?: number;
+  sessions?: number;
+  memory?: { rss: number; heapUsed: number; heapTotal: number };
+}
+
+// Search Result Types
+export interface SearchResult {
+  type: "memory" | "session" | "cron" | "config" | "file" | "agent";
+  title: string;
+  description?: string;
+  excerpt?: string;
+  agentId?: string;
+  id?: string;
+  relevance?: number;
+}
+
+// Toast Notification Types
+export interface Toast {
+  id: string;
+  type: "success" | "error" | "warning" | "info";
+  title: string;
+  description?: string;
+  duration?: number;
+}
+
 // Dashboard Stats
 export interface DashboardStats {
   totalAgents: number;
@@ -194,6 +276,7 @@ export interface DashboardStats {
   activeCronJobs: number;
   totalTasks: number;
   pendingTasks: number;
+  pendingApprovals: number;
 }
 
 // Connection state

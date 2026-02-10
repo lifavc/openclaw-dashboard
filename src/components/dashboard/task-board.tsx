@@ -1,9 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useGateway } from "@/hooks/use-gateway";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -13,6 +28,8 @@ import {
   ListTodo,
   Plus,
   ArrowRight,
+  GripVertical,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -24,15 +41,149 @@ const COLUMNS = [
   { key: "done", label: "Done", color: "border-emerald-600" },
 ] as const;
 
+function TaskCard({ task, agents, onDelete }: { task: Task; agents: { id: string; name: string; emoji?: string }[]; onDelete: (id: string) => void }) {
+  const agent = agents.find((a) => a.id === task.agentId);
+
+  return (
+    <Card className="group">
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <h4 className="text-xs font-medium text-zinc-200">{task.title}</h4>
+          {task.priority && (
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase",
+                getPriorityColor(task.priority)
+              )}
+            >
+              {task.priority}
+            </span>
+          )}
+        </div>
+        {task.description && (
+          <p className="mt-1 text-[10px] text-zinc-500 line-clamp-2">
+            {task.description}
+          </p>
+        )}
+        <div className="mt-2 flex items-center justify-between">
+          {agent ? (
+            <span className="text-[10px] text-zinc-500">
+              {agent.emoji ?? "🤖"} {agent.name || task.agentId}
+            </span>
+          ) : (
+            <span className="text-[10px] text-zinc-600">Unassigned</span>
+          )}
+          <span className="text-[10px] text-zinc-600">
+            {formatRelativeTime(task.createdAt)}
+          </span>
+        </div>
+        <div className="mt-2 flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            onClick={() => onDelete(task.id)}
+            className="rounded bg-zinc-800 p-1 text-zinc-500 transition-colors hover:bg-red-500/20 hover:text-red-400"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SortableTaskCard({ task, agents, onDelete }: { task: Task; agents: { id: string; name: string; emoji?: string }[]; onDelete: (id: string) => void }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id, data: { task } });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("relative", isDragging && "opacity-30")}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute left-1 top-3 z-10 cursor-grab rounded p-0.5 text-zinc-600 hover:text-zinc-400 active:cursor-grabbing"
+      >
+        <GripVertical className="h-3 w-3" />
+      </div>
+      <div className="pl-4">
+        <TaskCard task={task} agents={agents} onDelete={onDelete} />
+      </div>
+    </div>
+  );
+}
+
+function DroppableColumn({
+  column,
+  tasks,
+  agents,
+  onDelete,
+}: {
+  column: (typeof COLUMNS)[number];
+  tasks: Task[];
+  agents: { id: string; name: string; emoji?: string }[];
+  onDelete: (id: string) => void;
+}) {
+  const taskIds = tasks.map((t) => t.id);
+
+  return (
+    <div className="space-y-3">
+      <div className={cn("flex items-center gap-2 border-b-2 pb-2", column.color)}>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+          {column.label}
+        </h3>
+        <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
+          {tasks.length}
+        </span>
+      </div>
+
+      <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
+        <div className="min-h-[80px] space-y-2">
+          {tasks.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-zinc-800 py-8 text-center text-xs text-zinc-600">
+              Drop tasks here
+            </div>
+          ) : (
+            tasks.map((task) => (
+              <SortableTaskCard key={task.id} task={task} agents={agents} onDelete={onDelete} />
+            ))
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
 export function TaskBoard() {
-  const { status, tasks, agents, createTask, updateTask } = useGateway();
+  const { status, tasks, agents, createTask, updateTask, deleteTask } = useGateway();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
     priority: "medium" as Task["priority"],
     agentId: "",
   });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   if (status !== "connected") {
     return (
@@ -62,17 +213,40 @@ export function TaskBoard() {
     setShowCreateModal(false);
   };
 
-  const moveTask = (taskId: string, newStatus: Task["status"]) => {
-    updateTask(taskId, { status: newStatus });
+  const handleDragStart = (event: DragStartEvent) => {
+    const task = tasks.find((t) => t.id === event.active.id);
+    setActiveTask(task ?? null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveTask(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const taskId = String(active.id);
+    const overId = String(over.id);
+
+    // Check if dropped over a column
+    const targetColumn = COLUMNS.find((c) => c.key === overId);
+    if (targetColumn) {
+      updateTask(taskId, { status: targetColumn.key });
+      return;
+    }
+
+    // Check if dropped over another task — move to that task's column
+    const overTask = tasks.find((t) => t.id === overId);
+    if (overTask && overTask.status !== tasks.find((t) => t.id === taskId)?.status) {
+      updateTask(taskId, { status: overTask.status });
+    }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Create and manage tasks for your agents. Tasks are picked up on the next heartbeat.
+            Drag and drop tasks between columns. Tasks are picked up on the next heartbeat.
           </p>
         </div>
         <Button variant="primary" icon={Plus} onClick={() => setShowCreateModal(true)}>
@@ -80,81 +254,36 @@ export function TaskBoard() {
         </Button>
       </div>
 
-      {/* Kanban Board */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
-        {COLUMNS.map((col) => {
-          const columnTasks = tasks.filter((t) => t.status === col.key);
-          return (
-            <div key={col.key} className="space-y-3">
-              <div className={cn("flex items-center gap-2 border-b-2 pb-2", col.color)}>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  {col.label}
-                </h3>
-                <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
-                  {columnTasks.length}
-                </span>
-              </div>
+      {/* Kanban Board with DnD */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
+          {COLUMNS.map((col) => {
+            const columnTasks = tasks.filter((t) => t.status === col.key);
+            return (
+              <DroppableColumn
+                key={col.key}
+                column={col}
+                tasks={columnTasks}
+                agents={agents}
+                onDelete={deleteTask}
+              />
+            );
+          })}
+        </div>
 
-              {columnTasks.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-zinc-800 py-8 text-center text-xs text-zinc-600">
-                  No tasks
-                </div>
-              ) : (
-                columnTasks.map((task) => (
-                  <Card key={task.id} className="group">
-                    <CardContent className="p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-xs font-medium text-zinc-200">{task.title}</h4>
-                        {task.priority && (
-                          <span
-                            className={cn(
-                              "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase",
-                              getPriorityColor(task.priority)
-                            )}
-                          >
-                            {task.priority}
-                          </span>
-                        )}
-                      </div>
-                      {task.description && (
-                        <p className="mt-1 text-[10px] text-zinc-500 line-clamp-2">
-                          {task.description}
-                        </p>
-                      )}
-                      <div className="mt-2 flex items-center justify-between">
-                        {task.agentId ? (
-                          <span className="text-[10px] text-zinc-500">
-                            {agents.find((a) => a.id === task.agentId)?.emoji ?? "🤖"}{" "}
-                            {agents.find((a) => a.id === task.agentId)?.name ?? task.agentId}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-zinc-600">Unassigned</span>
-                        )}
-                        <span className="text-[10px] text-zinc-600">
-                          {formatRelativeTime(task.createdAt)}
-                        </span>
-                      </div>
-
-                      {/* Move buttons */}
-                      <div className="mt-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                        {COLUMNS.filter((c) => c.key !== task.status).map((c) => (
-                          <button
-                            key={c.key}
-                            onClick={() => moveTask(task.id, c.key)}
-                            className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200"
-                          >
-                            {c.label}
-                          </button>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
+        <DragOverlay>
+          {activeTask ? (
+            <div className="w-60 rotate-2 opacity-90">
+              <TaskCard task={activeTask} agents={agents} onDelete={() => {}} />
             </div>
-          );
-        })}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Create Task Modal */}
       <Modal

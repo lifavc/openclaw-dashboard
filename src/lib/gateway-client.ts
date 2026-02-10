@@ -1,7 +1,6 @@
 import type {
   GatewayFrame,
   GatewayRequest,
-  GatewayResponse,
   GatewayEvent,
   ConnectParams,
   HelloOkPayload,
@@ -14,6 +13,10 @@ import type {
   GatewayConfig,
   LogEntry,
   Skill,
+  ChatMessage,
+  ExecApproval,
+  GatewayHealth,
+  MemoryEntry,
 } from "@/types/gateway";
 
 type EventHandler = (event: GatewayEvent) => void;
@@ -43,6 +46,10 @@ export class GatewayClient {
 
   get status(): ConnectionStatus {
     return this._status;
+  }
+
+  get gatewayUrl(): string {
+    return this.url;
   }
 
   private setStatus(status: ConnectionStatus, error?: string) {
@@ -173,7 +180,6 @@ export class GatewayClient {
       if (handlers) {
         handlers.forEach((h) => h(frame));
       }
-      // Also dispatch to wildcard handlers
       const wildcardHandlers = this.eventHandlers.get("*");
       if (wildcardHandlers) {
         wildcardHandlers.forEach((h) => h(frame));
@@ -237,6 +243,10 @@ export class GatewayClient {
     await this.send("sessions.patch", { sessionId, ...patch });
   }
 
+  async getSessionHistory(sessionId: string, limit?: number): Promise<ChatMessage[]> {
+    return (await this.send("sessions.history", { sessionId, limit })) as ChatMessage[];
+  }
+
   async listCronJobs(): Promise<CronJob[]> {
     return (await this.send("cron.list")) as CronJob[];
   }
@@ -261,8 +271,8 @@ export class GatewayClient {
     return await this.send("chat.send", { agentId, message });
   }
 
-  async getChatHistory(agentId: string, limit?: number): Promise<unknown> {
-    return await this.send("chat.history", { agentId, limit });
+  async getChatHistory(agentId: string, limit?: number): Promise<ChatMessage[]> {
+    return (await this.send("chat.history", { agentId, limit })) as ChatMessage[];
   }
 
   async abortChat(agentId: string): Promise<void> {
@@ -291,5 +301,33 @@ export class GatewayClient {
     await this.send("config.patch", {
       patch: { agents: { [agentId]: { enabled: true } } },
     });
+  }
+
+  // ─── New API methods ───────────────────────────────────
+
+  async resolveApproval(approvalId: string, decision: "approve" | "deny"): Promise<void> {
+    await this.send("exec.approval.resolve", { approvalId, decision });
+  }
+
+  async listApprovals(): Promise<ExecApproval[]> {
+    return (await this.send("exec.approvals.list")) as ExecApproval[];
+  }
+
+  async searchMemory(agentId: string, query: string, limit?: number): Promise<MemoryEntry[]> {
+    return (await this.send("memory.search", { agentId, query, limit })) as MemoryEntry[];
+  }
+
+  async getHealth(): Promise<GatewayHealth> {
+    try {
+      const httpUrl = this.url.replace(/^ws/, "http").replace(/\/$/, "");
+      const res = await fetch(`${httpUrl}/health`, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) return (await res.json()) as GatewayHealth;
+    } catch {
+      // fall through
+    }
+    return { ok: this._status === "connected" };
   }
 }

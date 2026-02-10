@@ -16,11 +16,12 @@ import {
   Brain,
   RefreshCw,
   ArrowRight,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 
 export function Overview() {
-  const { status, agents, sessions, cronJobs, tasks, skills, stats, refresh, logs } = useGateway();
+  const { status, agents, sessions, cronJobs, tasks, skills, stats, refresh, logs, approvals, activityFeed } = useGateway();
   const isConnected = status === "connected";
 
   if (!isConnected) {
@@ -41,7 +42,7 @@ export function Overview() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -54,7 +55,7 @@ export function Overview() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Agents Online"
           value={`${stats.onlineAgents}/${stats.totalAgents}`}
@@ -82,6 +83,13 @@ export function Overview() {
           icon={ListTodo}
           subtitle={`${stats.totalTasks} total`}
           accentColor="text-violet-400"
+        />
+        <StatCard
+          label="Pending Approvals"
+          value={stats.pendingApprovals}
+          icon={ShieldCheck}
+          subtitle={stats.pendingApprovals > 0 ? "Needs attention" : "All clear"}
+          accentColor={stats.pendingApprovals > 0 ? "text-amber-400" : "text-emerald-400"}
         />
       </div>
 
@@ -198,31 +206,41 @@ export function Overview() {
 
         {/* Recent Activity */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-cyan-400" />
               <h2 className="text-sm font-semibold">Recent Activity</h2>
             </div>
+            <Link href="/feed" className="text-xs text-zinc-500 hover:text-zinc-300">
+              View all
+            </Link>
           </CardHeader>
           <CardContent className="p-0">
-            {logs.length === 0 ? (
+            {activityFeed.length === 0 && logs.length === 0 ? (
               <div className="px-5 py-8 text-center text-xs text-zinc-500">
                 No recent activity
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto">
-                {logs.slice(-10).reverse().map((log, i) => (
-                  <div key={i} className="flex items-start gap-3 px-5 py-2">
+                {(activityFeed.length > 0 ? activityFeed : logs.slice(-10).reverse().map((log, i) => ({
+                  id: String(i),
+                  type: "system" as const,
+                  title: log.message,
+                  description: log.source ?? undefined,
+                  timestamp: log.timestamp,
+                }))).slice(0, 10).map((event) => (
+                  <div key={event.id} className="flex items-start gap-3 px-5 py-2">
                     <div className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                      log.level === "error" ? "bg-red-400" :
-                      log.level === "warn" ? "bg-amber-400" :
+                      event.type === "error" ? "bg-red-400" :
+                      event.type === "approval" ? "bg-amber-400" :
+                      event.type === "agent" ? "bg-emerald-400" :
                       "bg-zinc-600"
                     }`} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs text-zinc-300">{log.message}</p>
+                      <p className="truncate text-xs text-zinc-300">{event.title}</p>
                       <p className="text-[10px] text-zinc-600">
-                        {log.source && `${log.source} · `}
-                        {log.timestamp ? formatRelativeTime(log.timestamp) : "just now"}
+                        {event.description ? `${event.description} · ` : ""}
+                        {event.timestamp ? formatRelativeTime(event.timestamp) : "just now"}
                       </p>
                     </div>
                   </div>
