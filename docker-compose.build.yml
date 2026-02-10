@@ -1,0 +1,5 @@
+services:
+  openclaw-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
