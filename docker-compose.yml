@@ -1,8 +1,8 @@
 services:
   openclaw-dashboard:
     image: ghcr.io/lifavc/openclaw-dashboard:latest
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
@@ -13,3 +13,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      openclaw-dashboard:
+        condition: service_healthy
