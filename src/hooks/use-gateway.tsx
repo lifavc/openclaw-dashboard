@@ -332,13 +332,22 @@ export function GatewayProvider({ children }: { children: React.ReactNode }) {
     setHealth(null);
   }, []);
 
-  // Auto-connect on mount (localStorage first, then env vars)
+  // Auto-connect on mount (localStorage first, then server env vars)
   useEffect(() => {
     const saved = loadSettings();
-    const url = saved?.url || process.env.NEXT_PUBLIC_GATEWAY_URL;
-    const token = saved?.token || process.env.NEXT_PUBLIC_GATEWAY_TOKEN || "";
-    if (url) {
-      connectFn(url, token).catch(() => {});
+    if (saved?.url && saved?.token) {
+      connectFn(saved.url, saved.token).catch(() => {});
+    } else {
+      fetch("/api/config")
+        .then((r) => r.json())
+        .then((cfg: { gatewayUrl?: string; gatewayToken?: string }) => {
+          const url = saved?.url || cfg.gatewayUrl;
+          const token = saved?.token || cfg.gatewayToken || "";
+          if (url && token) {
+            connectFn(url, token).catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
