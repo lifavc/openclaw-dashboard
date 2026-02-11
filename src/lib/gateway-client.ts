@@ -91,14 +91,14 @@ export class GatewayClient {
           minProtocol: 3,
           maxProtocol: 3,
           client: {
-            id: "openclaw-dashboard",
+            id: "cli",
             version: "1.0.0",
             platform: "web",
-            mode: "dashboard",
+            mode: "operator",
           },
-          role: "admin",
-          scopes: ["*"],
-          caps: ["streaming", "events"],
+          role: "operator",
+          scopes: ["operator.read", "operator.write"],
+          caps: [],
           auth: { token: this.token },
         };
 
