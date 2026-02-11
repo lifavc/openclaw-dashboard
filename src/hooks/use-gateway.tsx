@@ -332,11 +332,13 @@ export function GatewayProvider({ children }: { children: React.ReactNode }) {
     setHealth(null);
   }, []);
 
-  // Auto-connect on mount
+  // Auto-connect on mount (localStorage first, then env vars)
   useEffect(() => {
     const saved = loadSettings();
-    if (saved?.url && saved?.token) {
-      connectFn(saved.url, saved.token).catch(() => {});
+    const url = saved?.url || process.env.NEXT_PUBLIC_GATEWAY_URL;
+    const token = saved?.token || process.env.NEXT_PUBLIC_GATEWAY_TOKEN || "";
+    if (url) {
+      connectFn(url, token).catch(() => {});
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);

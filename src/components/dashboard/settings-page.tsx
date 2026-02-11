@@ -19,18 +19,21 @@ import {
 
 const SETTINGS_KEY = "openclaw-dashboard-settings";
 
+const DEFAULT_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "ws://127.0.0.1:18789";
+const DEFAULT_TOKEN = process.env.NEXT_PUBLIC_GATEWAY_TOKEN ?? "";
+
 function loadSettings(): { url: string; token: string } {
   if (typeof window === "undefined") return { url: "", token: "" };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { url: "ws://127.0.0.1:18789", token: "" };
+  return { url: DEFAULT_URL, token: DEFAULT_TOKEN };
 }
 
 export function SettingsPage() {
   const { status, error, connect, disconnect } = useGateway();
-  const [url, setUrl] = useState("ws://127.0.0.1:18789");
+  const [url, setUrl] = useState(DEFAULT_URL);
   const [token, setToken] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -96,7 +99,7 @@ export function SettingsPage() {
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="ws://127.0.0.1:18789"
+                placeholder={DEFAULT_URL}
                 disabled={isConnected}
                 className={cn(
                   "w-full rounded-lg border bg-zinc-900/50 px-4 py-2.5 font-mono text-sm placeholder:text-zinc-600 focus:outline-none",
@@ -106,7 +109,7 @@ export function SettingsPage() {
                 )}
               />
               <p className="mt-1 text-[10px] text-zinc-600">
-                Default: ws://127.0.0.1:18789 — Use wss:// for remote/secure connections
+                Default: {DEFAULT_URL} — Use wss:// for remote/secure connections
               </p>
             </div>
 
