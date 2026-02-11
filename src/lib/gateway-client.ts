@@ -93,8 +93,8 @@ export class GatewayClient {
           client: {
             id: "cli",
             version: "1.0.0",
-            platform: "web",
-            mode: "operator",
+            platform: "macos",
+            mode: "cli",
           },
           role: "operator",
           scopes: ["operator.read", "operator.write"],
