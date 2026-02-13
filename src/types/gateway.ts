@@ -40,6 +40,13 @@ export interface ConnectParams {
     token?: string;
     password?: string;
   };
+  device?: {
+    id: string;
+    publicKey: string;
+    signature?: string;
+    signedAt?: string;
+    nonce?: string;
+  };
 }
 
 export interface HelloOkPayload {

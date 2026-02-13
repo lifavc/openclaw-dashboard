@@ -18,6 +18,7 @@ import type {
   GatewayHealth,
   MemoryEntry,
 } from "@/types/gateway";
+import { getOrCreateDevice, signChallenge } from "@/lib/device-identity";
 
 type EventHandler = (event: GatewayEvent) => void;
 type StatusHandler = (status: ConnectionStatus, error?: string) => void;
@@ -38,6 +39,7 @@ export class GatewayClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private deviceToken: string | null = null;
+  private challengeResolve: ((value: { nonce: string; ts: number }) => void) | null = null;
 
   constructor(url: string, token: string) {
     this.url = url;
@@ -86,49 +88,95 @@ export class GatewayClient {
         return;
       }
 
-      this.ws.onopen = () => {
-        const connectParams: ConnectParams = {
-          minProtocol: 3,
-          maxProtocol: 3,
-          client: {
-            id: "cli",
-            version: "1.0.0",
-            platform: "macos",
-            mode: "cli",
-          },
-          role: "operator",
-          scopes: ["operator.read", "operator.write"],
-          caps: [],
-          auth: { token: this.token },
-        };
-
-        this.send("connect", connectParams as unknown as Record<string, unknown>)
-          .then((payload) => {
-            const hello = payload as HelloOkPayload;
-            this.deviceToken = hello.auth?.deviceToken ?? null;
-            this.setStatus("connected");
-            this.reconnectAttempts = 0;
-            resolve(hello);
-          })
-          .catch((err) => {
-            this.setStatus("error", err.message);
-            reject(err);
-          });
-      };
-
       this.ws.onmessage = (event) => {
         try {
           const frame: GatewayFrame = JSON.parse(event.data as string);
+
+          // Handle challenge event before connect
+          if (
+            frame.type === "event" &&
+            frame.event === "connect.challenge" &&
+            this.challengeResolve
+          ) {
+            const payload = frame.payload as { nonce: string; ts: number };
+            this.challengeResolve(payload);
+            this.challengeResolve = null;
+            return;
+          }
+
           this.handleFrame(frame);
         } catch {
           // ignore malformed frames
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onopen = async () => {
+        try {
+          const { identity, keyPair } = await getOrCreateDevice();
+
+          // Wait for challenge from gateway (with timeout)
+          const challenge = await new Promise<{ nonce: string; ts: number } | null>(
+            (res) => {
+              this.challengeResolve = res;
+              setTimeout(() => {
+                if (this.challengeResolve) {
+                  this.challengeResolve = null;
+                  res(null);
+                }
+              }, 3000);
+            }
+          );
+
+          // Build device object
+          const device: Record<string, unknown> = {
+            id: identity.id,
+            publicKey: identity.publicKey,
+          };
+
+          if (challenge) {
+            device.signature = await signChallenge(keyPair.privateKey, challenge.nonce);
+            device.signedAt = new Date().toISOString();
+            device.nonce = challenge.nonce;
+          }
+
+          const connectParams: ConnectParams = {
+            minProtocol: 3,
+            maxProtocol: 3,
+            client: {
+              id: "cli",
+              version: "1.0.0",
+              platform: "web",
+              mode: "operator",
+            },
+            role: "operator",
+            scopes: ["operator.read", "operator.write"],
+            caps: [],
+            auth: { token: this.token },
+          };
+
+          const payload = await this.send("connect", {
+            ...connectParams,
+            device,
+          } as unknown as Record<string, unknown>);
+
+          const hello = payload as HelloOkPayload;
+          this.deviceToken = hello.auth?.deviceToken ?? null;
+          this.setStatus("connected");
+          this.reconnectAttempts = 0;
+          resolve(hello);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.setStatus("error", msg);
+          reject(err);
+        }
+      };
+
+      this.ws.onclose = (event) => {
         if (this._status === "connected") {
           this.setStatus("disconnected");
           this.scheduleReconnect();
+        } else if (event.code === 1008 && event.reason?.includes("pairing")) {
+          this.setStatus("error", "Pairing required — run: openclaw devices approve <id>");
         }
       };
 
